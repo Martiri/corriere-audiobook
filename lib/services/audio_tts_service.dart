@@ -181,13 +181,16 @@ class AudioTtsService extends ChangeNotifier {
       RegExp(r'\bPM\b'): 'Pubblico Ministero',
       RegExp(r'\bPg\b'): 'Procuratore Generale',
       RegExp(r'\bPG\b'): 'Procuratore Generale',
-      RegExp(r'\bn\.\s*(\d+)', caseSensitive: false): 'numero $1',
-      RegExp(r'\bN\.\s*(\d+)'): 'numero $1',
     };
 
     abbreviations.forEach((pattern, replacement) {
       cleaned = cleaned.replaceAll(pattern, replacement);
     });
+
+    cleaned = cleaned.replaceAllMapped(
+      RegExp(r'\b[nN]\.\s*(\d+)'),
+      (match) => 'numero ${match.group(1)}',
+    );
 
     // Rimuovi virgolette e simboli che possono provocare pronunce sgradevoli nel TTS
     cleaned = cleaned
