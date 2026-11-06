@@ -12,15 +12,29 @@ class ExtractorService {
   static const String _domExtractorScript = r'''
   (function() {
     try {
+      // 0. Se l'utente ha selezionato del testo sullo schermo, estrai direttamente quello
+      let selection = window.getSelection ? window.getSelection().toString().trim() : '';
+      if (selection && selection.length > 25) {
+        return JSON.stringify({
+          title: document.title || 'Estratto Selezionato',
+          subtitle: 'Lettura del testo evidenziato sullo schermo',
+          author: 'Corriere della Sera',
+          date: '',
+          paragraphs: selection.split(/\n+/).map(s => s.trim()).filter(s => s.length > 10)
+        });
+      }
+
       // 1. Estrazione del Titolo (supporta sia Sito Web che Edicola Digitale)
       let title = '';
       const titleSelectors = [
+        'h1.chapter-title',
+        'h1.title-art',
+        'h1.article-title',
+        'h1[data-qa="article-title"]',
         '.article-detail h1',
         '.article-detail .title',
         '.reader-title',
         '.article-head',
-        'h1.title-art',
-        'h1.article-title',
         'h1[itemprop="headline"]',
         'h1'
       ];
@@ -31,10 +45,15 @@ class ExtractorService {
           break;
         }
       }
+      if (!title) {
+        const ogTitle = document.querySelector('meta[property="og:title"]');
+        if (ogTitle && ogTitle.content) title = ogTitle.content.trim();
+      }
 
       // 2. Estrazione del Sottotitolo / Sommario
       let subtitle = '';
       const subtitleSelectors = [
+        'h2.chapter-summary',
         '.article-detail .subtitle',
         '.subtitle-art',
         '.article-subtitle',
@@ -49,10 +68,15 @@ class ExtractorService {
           break;
         }
       }
+      if (!subtitle) {
+        const ogDesc = document.querySelector('meta[property="og:description"]');
+        if (ogDesc && ogDesc.content) subtitle = ogDesc.content.trim();
+      }
 
       // 3. Estrazione dell'Autore
       let author = '';
       const authorSelectors = [
+        '.author-name',
         '.article-detail .author',
         '.author-art',
         '.signature',
@@ -67,6 +91,10 @@ class ExtractorService {
           break;
         }
       }
+      if (!author) {
+        const metaAuthor = document.querySelector('meta[name="author"]');
+        if (metaAuthor && metaAuthor.content) author = metaAuthor.content.trim();
+      }
 
       // 4. Estrazione della Data
       let date = '';
@@ -77,40 +105,6 @@ class ExtractorService {
 
       // 5. Estrazione dei Paragrafi dell'articolo (Sito ed Edicola)
       const paragraphs = [];
-      const containerSelectors = [
-        '.article-detail',
-        '.article-container',
-        '.article-text',
-        '.reader-text',
-        '.modal-body',
-        '.article_text',
-        '.page-article',
-        '.sfogliatore-article',
-        '#articleContent',
-        '.articleContent',
-        '.article-body',
-        '.content',
-        '.story-body',
-        '.body-article',
-        'article',
-        'main'
-      ];
-
-      let container = null;
-      for (const sel of containerSelectors) {
-        const el = document.querySelector(sel);
-        if (el && el.innerText.trim().length > 100) {
-          container = el;
-          break;
-        }
-      }
-
-      const searchRoot = container || document.body;
-      let pElements = searchRoot.querySelectorAll('p');
-      if (pElements.length === 0) {
-        pElements = searchRoot.querySelectorAll('.paragraph, .paragrafo, div[class*="text"], div[class*="paragraph"]');
-      }
-
       const blacklistedTerms = [
         'iscriviti alla newsletter',
         'tutti i diritti riservati',
@@ -121,17 +115,20 @@ class ExtractorService {
         'pubblicità',
         'banner',
         'accetta i cookie',
-        'abbonati a corriere'
+        'abbonati a corriere',
+        'scarica l\'app'
       ];
 
-      pElements.forEach(p => {
-        // Ignora paragrafi dentro header, footer, adv o commenti
-        if (p.closest('header, footer, nav, aside, .adv, .banner, .comments, .related')) {
+      // Prova prima con i selettori di paragrafo standard Corriere
+      const articleParagraphs = document.querySelectorAll(
+        'p.chapter-paragraph, p.is-paragraph, .article-body p, [data-qa="article-body"] p, .reader-text p, .page-article p, .modal-body p, article p'
+      );
+
+      articleParagraphs.forEach(p => {
+        if (p.closest('header, footer, nav, aside, .adv, .banner, .comments, .related, .modal-access__footer')) {
           return;
         }
-
         const text = p.innerText ? p.innerText.trim() : '';
-        // Considera solo paragrafi con contenuto significativo (almeno 25 caratteri)
         if (text.length >= 25) {
           const lower = text.toLowerCase();
           const isSpam = blacklistedTerms.some(term => lower.includes(term));
@@ -140,6 +137,54 @@ class ExtractorService {
           }
         }
       });
+
+      // Se non ha trovato paragrafi di un articolo singolo, cerca nel contenitore generico
+      if (paragraphs.length === 0) {
+        const container = document.querySelector('article, main, #articleContent, .content');
+        if (container) {
+          const pElements = container.querySelectorAll('p');
+          pElements.forEach(p => {
+            if (p.closest('header, footer, nav, aside, .adv, .banner')) return;
+            const text = p.innerText ? p.innerText.trim() : '';
+            if (text.length >= 25 && !paragraphs.includes(text)) {
+              paragraphs.push(text);
+            }
+          });
+        }
+      }
+
+      // 6. FALLBACK RASSEGNA STAMPA: Se ci si trova sulla home page o sull'edicola principale,
+      // estrai i titoli e i sommari delle notizie principali di oggi
+      if (paragraphs.length === 0) {
+        const headlines = [];
+        const newsCards = document.querySelectorAll(
+          '.media-news, article, div[class*="card"], div[class*="story"], .has_text, .has-text, .b-story'
+        );
+        newsCards.forEach(card => {
+          const h = card.querySelector('h1, h2, h3, h4, .title, a[class*="title"]');
+          const lead = card.querySelector('p, .summary, .lead, .sommario');
+          if (h) {
+            const hText = h.innerText.trim();
+            if (hText.length >= 15 && !headlines.some(item => item.includes(hText))) {
+              let full = hText;
+              if (lead && lead.innerText.trim().length >= 20) {
+                full += '. ' + lead.innerText.trim();
+              }
+              headlines.push(full);
+            }
+          }
+        });
+
+        if (headlines.length >= 3) {
+          return JSON.stringify({
+            title: 'Corriere della Sera • Notizie di Oggi',
+            subtitle: 'Rassegna audio con le notizie e i titoli principali del momento',
+            author: 'Redazione Corriere della Sera',
+            date: new Date().toLocaleDateString('it-IT'),
+            paragraphs: headlines.slice(0, 25)
+          });
+        }
+      }
 
       return JSON.stringify({
         title: title || document.title || 'Articolo Corriere',
@@ -203,6 +248,36 @@ class ExtractorService {
     }
   }
 
+  /// Estrazione da link incollato o da testo inserito direttamente
+  static Future<Article?> extractFromUrlOrText(String input, String cookies) async {
+    final trimmed = input.trim();
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return extractFromHttp(trimmed, cookies);
+    } else {
+      // Testo grezzo inserito dall'utente
+      final lines = trimmed
+          .split(RegExp(r'\n+'))
+          .map((l) => _cleanText(l))
+          .where((l) => l.length >= 10)
+          .toList();
+      if (lines.isEmpty) return null;
+
+      final title = lines.first.length < 100 ? lines.first : 'Testo Incollato';
+      final paragraphs = lines.first.length < 100 && lines.length > 1
+          ? lines.sublist(1)
+          : lines;
+
+      return Article(
+        title: title,
+        subtitle: 'Audiolibro generato da testo inserito',
+        author: 'Lettore Utente',
+        date: '',
+        url: 'manual-input',
+        paragraphs: paragraphs,
+      );
+    }
+  }
+
   /// Estrazione secondaria di fallback: Richiesta HTTP con i cookie di sessione autenticati
   static Future<Article?> extractFromHttp(String pageUrl, String cookies) async {
     try {
@@ -225,25 +300,30 @@ class ExtractorService {
       final document = html_parser.parse(response.body);
 
       // Titolo
-      final h1El = document.querySelector('h1.title-art') ??
+      final h1El = document.querySelector('h1.chapter-title') ??
+          document.querySelector('h1.title-art') ??
           document.querySelector('h1.article-title') ??
           document.querySelector('h1');
       final title = h1El?.text.trim() ?? document.querySelector('title')?.text.trim() ?? 'Articolo';
 
       // Sottotitolo
-      final subEl = document.querySelector('.subtitle-art') ??
+      final subEl = document.querySelector('h2.chapter-summary') ??
+          document.querySelector('.subtitle-art') ??
           document.querySelector('.article-subtitle') ??
           document.querySelector('.sommario');
       final subtitle = subEl?.text.trim() ?? '';
 
       // Autore
-      final authorEl = document.querySelector('.author-art') ??
+      final authorEl = document.querySelector('.author-name') ??
+          document.querySelector('.author-art') ??
           document.querySelector('.signature') ??
           document.querySelector('.autore');
       final author = authorEl?.text.trim() ?? '';
 
       // Paragrafi
-      final pElements = document.querySelectorAll('.article-body p, article p, main p');
+      final pElements = document.querySelectorAll(
+        'p.chapter-paragraph, p.is-paragraph, .article-body p, article p, main p'
+      );
       final List<String> paragraphs = [];
 
       for (final p in pElements) {

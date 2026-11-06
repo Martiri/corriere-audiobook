@@ -112,11 +112,16 @@ class UpdateDialog extends StatelessWidget {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    'Installazione certificata e Play Protect Clean.',
+                    'Firma permanente RSA-2048: aggiornamenti in-place certificati.',
                     style: TextStyle(fontSize: 11, color: Colors.green[600]),
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Nota: Se avevi la primissima v1.0.0 (chiave provvisoria), rimuovila prima di installare. Da v1.0.2 in poi gli aggiornamenti si sovrascrivono automaticamente con 1 tap.',
+              style: TextStyle(fontSize: 10, color: isDark ? Colors.grey[500] : Colors.grey[600], fontStyle: FontStyle.italic),
             ),
           ],
         ),

@@ -37,6 +37,9 @@ class AudioTtsService extends ChangeNotifier {
   int? _sleepTimerMinutes;
   int? get sleepTimerMinutes => _sleepTimerMinutes;
 
+  String? _selectedVoiceName;
+  String? get selectedVoiceName => _selectedVoiceName;
+
   AudioTtsService(this._storageService) {
     _initTts();
   }
@@ -61,12 +64,20 @@ class AudioTtsService extends ChangeNotifier {
       });
     } catch (_) {}
 
+    // Imposta motore Google Text-to-Speech se presente sul dispositivo
+    try {
+      final engines = await _flutterTts.getEngines;
+      if (engines is List && engines.contains('com.google.android.tts')) {
+        await _flutterTts.setEngine('com.google.android.tts');
+      }
+    } catch (_) {}
+
     // Imposta parametri salvati
     _speechRate = _storageService.getSpeechRate();
     _pitch = _storageService.getPitch();
 
     await _flutterTts.setLanguage('it-IT');
-    // Su Android flutter_tts mappa la velocità da 0.0 a 1.0, dove 0.5 è la normale
+    // Su Android standard, 1.0 corrisponde alla velocità normale naturale
     await _flutterTts.setSpeechRate(_mapRateToNative(_speechRate));
     await _flutterTts.setPitch(_pitch);
 
@@ -80,23 +91,118 @@ class AudioTtsService extends ChangeNotifier {
       _onParagraphCompleted();
     });
 
-    // Recupera le voci italiane disponibili
+    // Recupera e seleziona le migliori voci neurali italiane
+    await _loadVoices();
+  }
+
+  /// Carica le voci italiane e imposta per default la migliore voce neurale
+  Future<void> _loadVoices() async {
     try {
       final voices = await _flutterTts.getVoices;
       if (voices is List) {
-        _availableVoices = voices.where((v) {
-          final locale = v['locale']?.toString().toLowerCase() ?? '';
-          return locale.contains('it');
+        final itVoices = voices.where((v) {
+          final locale = (v['locale']?.toString() ?? '').toLowerCase().replaceAll('_', '-');
+          return locale.startsWith('it') || locale.contains('it-it');
         }).toList();
+
+        // Ordina per favorire voci ad alta fedeltà neurale / network di Google
+        itVoices.sort((a, b) {
+          final nameA = (a['name']?.toString() ?? '').toLowerCase();
+          final nameB = (b['name']?.toString() ?? '').toLowerCase();
+          final isNetworkA = nameA.contains('network') || nameA.contains('natural') || nameA.contains('wavenet');
+          final isNetworkB = nameB.contains('network') || nameB.contains('natural') || nameB.contains('wavenet');
+          if (isNetworkA && !isNetworkB) return -1;
+          if (!isNetworkA && isNetworkB) return 1;
+          return nameA.compareTo(nameB);
+        });
+
+        _availableVoices = itVoices;
+
+        // Se c'è una voce salvata, usala; altrimenti usa la migliore disponibile
+        final savedVoiceName = _storageService.getVoice();
+        if (savedVoiceName != null && savedVoiceName.isNotEmpty) {
+          final found = itVoices.firstWhere(
+            (v) => v['name'] == savedVoiceName,
+            orElse: () => null,
+          );
+          if (found != null) {
+            await _flutterTts.setVoice({
+              'name': found['name'].toString(),
+              'locale': found['locale'].toString(),
+            });
+            _selectedVoiceName = savedVoiceName;
+          }
+        } else if (itVoices.isNotEmpty) {
+          final bestVoice = itVoices.first;
+          await _flutterTts.setVoice({
+            'name': bestVoice['name'].toString(),
+            'locale': bestVoice['locale'].toString(),
+          });
+          _selectedVoiceName = bestVoice['name'].toString();
+          await _storageService.setVoice(_selectedVoiceName!);
+        }
         notifyListeners();
       }
     } catch (_) {}
   }
 
-  /// Mappa una velocità umana (es. 0.5x - 2.0x con base 1.0x) alla scala FlutterTts Android
+  /// Pulisce ed espande il testo prima della lettura per un parlato umano e fluido
+  static String cleanTextForSpeech(String text) {
+    String cleaned = text;
+
+    // Espansione abbreviazioni giornalistiche comuni per un parlato naturale
+    final abbreviations = {
+      RegExp(r'\bdott\.ssa\b', caseSensitive: false): 'dottoressa',
+      RegExp(r'\bdott\.\b', caseSensitive: false): 'dottor',
+      RegExp(r'\bprof\.ssa\b', caseSensitive: false): 'professoressa',
+      RegExp(r'\bprof\.\b', caseSensitive: false): 'professor',
+      RegExp(r'\bing\.\b', caseSensitive: false): 'ingegner',
+      RegExp(r'\bavv\.\b', caseSensitive: false): 'avvocato',
+      RegExp(r'\bon\.\b', caseSensitive: false): 'onorevole',
+      RegExp(r'\bsen\.\b', caseSensitive: false): 'senatore',
+      RegExp(r'\bpagg?\.\b', caseSensitive: false): 'pagine',
+      RegExp(r'\bpag\.\b', caseSensitive: false): 'pagina',
+      RegExp(r'\becc\.\b', caseSensitive: false): 'eccetera',
+      RegExp(r'\bart\.\b', caseSensitive: false): 'articolo',
+      RegExp(r'\bc\.d\.\b', caseSensitive: false): 'cosiddetto',
+      RegExp(r'\bUe\b'): 'Unione Europea',
+      RegExp(r'\bUE\b'): 'Unione Europea',
+      RegExp(r'\bUsa\b'): 'Stati Uniti',
+      RegExp(r'\bUSA\b'): 'Stati Uniti',
+      RegExp(r'\bBce\b'): 'Banca Centrale Europea',
+      RegExp(r'\bBCE\b'): 'Banca Centrale Europea',
+      RegExp(r'\bFmi\b'): 'Fondo Monetario Internazionale',
+      RegExp(r'\bFMI\b'): 'Fondo Monetario Internazionale',
+      RegExp(r'\bPil\b'): 'Pil',
+      RegExp(r'\bPIL\b'): 'Pil',
+      RegExp(r'\bTar\b'): 'Tar',
+      RegExp(r'\bTAR\b'): 'Tar',
+      RegExp(r'\bPm\b'): 'Pubblico Ministero',
+      RegExp(r'\bPM\b'): 'Pubblico Ministero',
+      RegExp(r'\bPg\b'): 'Procuratore Generale',
+      RegExp(r'\bPG\b'): 'Procuratore Generale',
+      RegExp(r'\bn\.\s*(\d+)', caseSensitive: false): 'numero $1',
+      RegExp(r'\bN\.\s*(\d+)'): 'numero $1',
+    };
+
+    abbreviations.forEach((pattern, replacement) {
+      cleaned = cleaned.replaceAll(pattern, replacement);
+    });
+
+    // Rimuovi virgolette e simboli che possono provocare pronunce sgradevoli nel TTS
+    cleaned = cleaned
+        .replaceAll(RegExp(r'[«»""“”‘’]'), '')
+        .replaceAll(RegExp(r'[—–-]'), ', ')
+        .replaceAll('...', ', ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    return cleaned;
+  }
+
+  /// Mappa la velocità naturale alla scala del TextToSpeech Android nativo (1.0 = normale)
   double _mapRateToNative(double rate) {
-    // 1.0 corrisponde a circa 0.5 in Android TextToSpeech standard
-    return (rate * 0.5).clamp(0.2, 1.0);
+    return rate.clamp(0.5, 2.0);
   }
 
   /// Avvia la lettura di un nuovo articolo
@@ -112,7 +218,7 @@ class AudioTtsService extends ChangeNotifier {
     await _speakCurrent();
   }
 
-  /// Pronuncia il paragrafo corrente
+  /// Pronuncia il paragrafo corrente applicando le ottimizzazioni di prosodia
   Future<void> _speakCurrent() async {
     if (_currentArticle == null || _state != PlaybackState.playing) return;
 
@@ -121,7 +227,8 @@ class AudioTtsService extends ChangeNotifier {
       return;
     }
 
-    final text = _currentArticle!.paragraphs[_currentIndex];
+    final rawText = _currentArticle!.paragraphs[_currentIndex];
+    final text = cleanTextForSpeech(rawText);
     if (text.trim().isEmpty) {
       _onParagraphCompleted();
       return;
@@ -227,9 +334,18 @@ class AudioTtsService extends ChangeNotifier {
   Future<void> setVoice(Map<String, String> voice) async {
     await _flutterTts.setVoice(voice);
     if (voice['name'] != null) {
-      await _storageService.setVoice(voice['name']!);
+      _selectedVoiceName = voice['name']!;
+      await _storageService.setVoice(_selectedVoiceName!);
     }
     notifyListeners();
+  }
+
+  /// Esegue un breve test di ascolto della voce selezionata
+  Future<void> testVoice(Map<String, String> voice) async {
+    await stop();
+    await setVoice(voice);
+    const sample = 'Questa è la nuova voce naturale italiana per la lettura del Corriere della Sera.';
+    await _flutterTts.speak(sample);
   }
 
   /// Timer di spegnimento automatico (in minuti)

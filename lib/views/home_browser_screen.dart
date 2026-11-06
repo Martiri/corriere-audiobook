@@ -31,7 +31,7 @@ class HomeBrowserScreen extends StatefulWidget {
 class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
   late final WebViewController _controller;
 
-  String _currentUrl = AppConfig.corriereEdicolaUrl;
+  String _currentUrl = AppConfig.corriereBaseUrl;
   bool _isLoading = true;
   double _loadingProgress = 0.0;
   bool _canGoBack = false;
@@ -108,19 +108,35 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
           },
         ),
       )
-      ..loadRequest(Uri.parse(AppConfig.corriereEdicolaUrl));
+      ..loadRequest(Uri.parse(AppConfig.corriereBaseUrl));
   }
 
-  /// Inietta JavaScript per garantire che toccare il giornale apra sempre lo sfogliatore
+  /// Inietta JavaScript per garantire che toccare il giornale e gli articoli funzioni sempre
   Future<void> _injectPageTouchFixes() async {
     const jsScript = r'''
       (function() {
         try {
-          // 1. Rimuovi banner fastidiosi che bloccano i touch (es. banner Google Play "OTTIENI")
-          const banners = document.querySelectorAll('.smartbanner, [class*="smartbanner"], [id*="smartbanner"], .app-banner');
+          // 1. Rimuovi o nascondi banner cookie e consensi che bloccano i touch (OneTrust, Didomi, Iubenda)
+          const cookieBanners = document.querySelectorAll(
+            '#onetrust-banner-sdk, #didomi-host, .didomi-popup-notice, [id*="cookie"], [class*="cookie-banner"], [id*="sp_message_container"], .privacy-overlay'
+          );
+          cookieBanners.forEach(b => {
+            b.style.display = 'none';
+            b.style.pointerEvents = 'none';
+          });
+
+          // 2. Rimuovi banner fastidiosi che bloccano i touch (es. banner Google Play "OTTIENI", smartbanner)
+          const banners = document.querySelectorAll(
+            '.smartbanner, [class*="smartbanner"], [id*="smartbanner"], .app-banner, .interstitial'
+          );
           banners.forEach(b => b.remove());
 
-          // 2. Forza tutti i link target="_blank" ad aprirsi nella stessa finestra
+          // 3. Assicurati che lo scroll e i tocchi sulla pagina siano sempre liberi
+          document.body.style.overflow = 'auto';
+          document.documentElement.style.overflow = 'auto';
+          document.body.style.position = 'static';
+
+          // 4. Forza tutti i link target="_blank" ad aprirsi nella stessa finestra
           document.querySelectorAll('a[target="_blank"]').forEach(a => a.removeAttribute('target'));
           document.addEventListener('click', function(e) {
             var a = e.target.closest('a');
@@ -129,7 +145,7 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
             }
           }, true);
 
-          // 3. Override window.open per reindirizzare nella stessa WebView invece di venire bloccato
+          // 5. Override window.open per navigare nella stessa WebView
           window.open = function(url, target, features) {
             if (url) {
               window.location.href = url;
@@ -137,8 +153,8 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
             return window;
           };
 
-          // 4. Assicurati che le copertine dei giornali abbiano cursore pointer e touch abilitato
-          document.querySelectorAll('img, div[class*="cover"], div[class*="edition"], a').forEach(el => {
+          // 6. Abilita puntatore e touch su tutte le copertine, card di notizie e articoli
+          document.querySelectorAll('img, div[class*="cover"], div[class*="edition"], article, a, button, .has_text, .media-news').forEach(el => {
             el.style.pointerEvents = 'auto';
             el.style.cursor = 'pointer';
           });
@@ -191,6 +207,103 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
     } catch (_) {}
   }
 
+  /// Finestra per incollare direttamente un link o testo di un articolo
+  void _showPasteArticleDialog() {
+    final textController = TextEditingController();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF16181D) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.paste_rounded, color: Color(0xFF2979FF)),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Ascolta da Link o Testo',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: textController,
+                  maxLines: 5,
+                  decoration: InputDecoration(
+                    hintText: 'Incolla il link di un articolo del Corriere oppure incolla direttamente il testo dell\'articolo...',
+                    hintStyle: TextStyle(fontSize: 13, color: isDark ? Colors.grey[500] : Colors.grey[400]),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    contentPadding: const EdgeInsets.all(12),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    icon: const Icon(Icons.headphones_rounded, size: 18),
+                    label: const Text('Converti in Audiolibro'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF2979FF),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      final input = textController.text.trim();
+                      if (input.isEmpty) return;
+                      Navigator.pop(ctx);
+
+                      final cookies = widget.storageService.getSavedCookies();
+                      final article = await ExtractorService.extractFromUrlOrText(input, cookies);
+
+                      if (article != null && article.paragraphs.isNotEmpty && mounted) {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => PlayerScreen(
+                              article: article,
+                              ttsService: widget.ttsService,
+                            ),
+                          ),
+                        );
+                      } else if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Impossibile estrarre il testo dal link fornito.'),
+                            backgroundColor: Colors.orangeAccent,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   /// Estrazione e apertura dell'articolo come audiolibro
   Future<void> _extractAndPlay() async {
     if (_isExtracting) return;
@@ -222,7 +335,7 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Nessun testo rilevato nella schermata corrente. Apri un articolo o una pagina del quotidiano prima di convertire.',
+              'Tocca un articolo del giornale per aprirlo, oppure usa "Incolla Link" in alto.',
             ),
             backgroundColor: Colors.orangeAccent,
             behavior: SnackBarBehavior.floating,
@@ -412,43 +525,53 @@ class _HomeBrowserScreenState extends State<HomeBrowserScreen> {
 
   Widget _buildSectionTabBar(bool isDark, bool isEdicola, bool isWebSite, bool isLogin) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       color: isDark ? const Color(0xFF0A0C10) : const Color(0xFFF6F8FA),
       child: Row(
         children: [
-          // Scheda 1: Quotidiano (Edicola Digitale)
+          // Scheda 1: Notizie di Oggi (Home Corriere)
           _buildPillTab(
-            label: 'Quotidiano (Edicola)',
+            label: 'Notizie',
             icon: Icons.newspaper_rounded,
-            isSelected: isEdicola,
-            isDark: isDark,
-            onTap: () {
-              _controller.loadRequest(Uri.parse(AppConfig.corriereEdicolaUrl));
-            },
-          ),
-          const SizedBox(width: 8),
-
-          // Scheda 2: Notizie Web
-          _buildPillTab(
-            label: 'Sito Web',
-            icon: Icons.language_rounded,
             isSelected: isWebSite,
             isDark: isDark,
             onTap: () {
               _controller.loadRequest(Uri.parse(AppConfig.corriereBaseUrl));
             },
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
 
-          // Scheda 3: Accedi (Login)
+          // Scheda 2: Quotidiano (Edicola Digitale)
           _buildPillTab(
-            label: 'Login',
+            label: 'Edicola',
+            icon: Icons.menu_book_rounded,
+            isSelected: isEdicola,
+            isDark: isDark,
+            onTap: () {
+              _controller.loadRequest(Uri.parse(AppConfig.corriereEdicolaUrl));
+            },
+          ),
+          const SizedBox(width: 6),
+
+          // Scheda 3: Accedi (Login Abbonamento)
+          _buildPillTab(
+            label: 'Accedi',
             icon: Icons.account_circle_outlined,
             isSelected: isLogin,
             isDark: isDark,
             onTap: () {
               _controller.loadRequest(Uri.parse(AppConfig.corriereLoginUrl));
             },
+          ),
+          const SizedBox(width: 6),
+
+          // Scheda 4: Incolla Link o Testo
+          _buildPillTab(
+            label: 'Incolla',
+            icon: Icons.paste_rounded,
+            isSelected: false,
+            isDark: isDark,
+            onTap: _showPasteArticleDialog,
           ),
         ],
       ),

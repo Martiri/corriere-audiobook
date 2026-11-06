@@ -1,7 +1,7 @@
 /// Configurazione globale dell'applicazione Corriere Audiobook
 class AppConfig {
   static const String appName = 'Corriere Audiobook';
-  static const String appVersion = '1.0.1';
+  static const String appVersion = '1.0.2';
 
   /// URL di partenza per la navigazione del Corriere della Sera (Sito web)
   static const String corriereBaseUrl = 'https://www.corriere.it';
@@ -10,7 +10,7 @@ class AppConfig {
   static const String corriereEdicolaUrl = 'https://digitaledition.corriere.it';
   
   /// URL diretto di login
-  static const String corriereLoginUrl = 'https://www.corriere.it/login/';
+  static const String corriereLoginUrl = 'https://www.corriere.it/account/login';
 
   /// Coordinate predefinite del repository GitHub per gli aggiornamenti automatici
   static const String defaultGitHubRepo = 'Martiri/corriere-audiobook';

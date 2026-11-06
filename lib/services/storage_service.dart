@@ -24,7 +24,7 @@ class StorageService {
   // --- Impostazioni TTS ---
 
   double getSpeechRate() {
-    return _prefs.getDouble(_keySpeechRate) ?? 1.0;
+    return _prefs.getDouble(_keySpeechRate) ?? 1.05;
   }
 
   Future<void> setSpeechRate(double rate) async {

@@ -162,6 +162,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (context, _) {
         final rate = widget.ttsService.speechRate;
         final pitch = widget.ttsService.pitch;
+        final voices = widget.ttsService.availableVoices;
+        final selectedVoice = widget.ttsService.selectedVoiceName;
 
         return Card(
           color: isDark ? const Color(0xFF161616) : Colors.white,
@@ -176,7 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Velocità di lettura', style: TextStyle(fontWeight: FontWeight.w500)),
+                    const Text('Velocità di lettura (Naturale)', style: TextStyle(fontWeight: FontWeight.w500)),
                     Text(
                       '${rate.toStringAsFixed(2)}x',
                       style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent),
@@ -212,6 +214,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   divisions: 10,
                   activeColor: Colors.blueAccent,
                   onChanged: (val) => widget.ttsService.setPitch(val),
+                ),
+
+                const Divider(height: 24),
+
+                // Selezione Voce Italiana
+                const Text(
+                  'Voce Narrante Italiana:',
+                  style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                ),
+                const SizedBox(height: 8),
+
+                if (voices.isEmpty)
+                  Text(
+                    'Voce italiana predefinita di sistema attiva.',
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.grey[400] : Colors.grey[600]),
+                  )
+                else
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF202020) : const Color(0xFFF2F4F7),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isDark ? Colors.grey[800]! : Colors.grey[300]!,
+                      ),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: voices.any((v) => v['name'] == selectedVoice)
+                            ? selectedVoice
+                            : (voices.isNotEmpty ? voices.first['name'].toString() : null),
+                        dropdownColor: isDark ? const Color(0xFF22252A) : Colors.white,
+                        items: voices.map<DropdownMenuItem<String>>((v) {
+                          final name = v['name']?.toString() ?? '';
+                          String friendlyName = name;
+                          if (name.contains('it-it-x-itc')) {
+                            friendlyName = '🇮🇹 Google Neurale C (Consigliata HD)';
+                          } else if (name.contains('it-it-x-ita')) {
+                            friendlyName = '🇮🇹 Google Neurale A (Fluida HD)';
+                          } else if (name.contains('it-it-x-kda')) {
+                            friendlyName = '🇮🇹 Google Neurale D (Naturale HD)';
+                          } else if (name.toLowerCase().contains('network')) {
+                            friendlyName = '🇮🇹 $name (Rete HD)';
+                          } else {
+                            friendlyName = '🇮🇹 $name';
+                          }
+
+                          return DropdownMenuItem<String>(
+                            value: name,
+                            child: Text(
+                              friendlyName,
+                              style: const TextStyle(fontSize: 13),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: (newVoiceName) {
+                          if (newVoiceName != null) {
+                            final chosen = voices.firstWhere((v) => v['name'] == newVoiceName);
+                            widget.ttsService.setVoice({
+                              'name': chosen['name'].toString(),
+                              'locale': chosen['locale'].toString(),
+                            });
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+
+                const SizedBox(height: 12),
+
+                // Pulsante Prova Voce
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.volume_up_rounded, size: 18),
+                  label: const Text('Ascolta Prova Voce'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.blueAccent),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () {
+                    final currentVoiceName = widget.ttsService.selectedVoiceName;
+                    if (currentVoiceName != null && voices.isNotEmpty) {
+                      final chosen = voices.firstWhere(
+                        (v) => v['name'] == currentVoiceName,
+                        orElse: () => voices.first,
+                      );
+                      widget.ttsService.testVoice({
+                        'name': chosen['name'].toString(),
+                        'locale': chosen['locale'].toString(),
+                      });
+                    }
+                  },
                 ),
               ],
             ),
