@@ -239,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextField(
               controller: _repoController,
               decoration: InputDecoration(
-                hintText: 'es. franco-developer/corriere-audiobook',
+                hintText: 'es. Martiri/corriere-audiobook',
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               ),

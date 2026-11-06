@@ -8,7 +8,7 @@ class AppConfig {
   static const String corriereLoginUrl = 'https://www.corriere.it/login/';
 
   /// Coordinate predefinite del repository GitHub per gli aggiornamenti automatici
-  static const String defaultGitHubRepo = 'franco-developer/corriere-audiobook';
+  static const String defaultGitHubRepo = 'Martiri/corriere-audiobook';
 
   /// User Agent mobile moderno per garantire compatibilità ottimale con Corriere.it
   static const String customUserAgent =
