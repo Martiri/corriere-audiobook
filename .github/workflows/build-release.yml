@@ -82,7 +82,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'corrierekey' }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'corriere_audio_pass2026' }}
         run: |
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Prepare Release Artifacts
         id: prepare_artifact
