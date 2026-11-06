@@ -63,7 +63,7 @@ class CorriereAudiobookApp extends StatelessWidget {
           foregroundColor: Colors.white,
           elevation: 0,
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: const Color(0xFF141414),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
@@ -86,7 +86,7 @@ class CorriereAudiobookApp extends StatelessWidget {
           foregroundColor: Colors.black87,
           elevation: 0,
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),

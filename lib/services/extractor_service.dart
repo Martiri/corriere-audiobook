@@ -213,7 +213,7 @@ class ExtractorService {
       for (final p in pElements) {
         final text = _cleanText(p.text);
         if (text.length >= 25 && !paragraphs.contains(text)) {
-          paragraphs.push(text);
+          paragraphs.add(text);
         }
       }
 
