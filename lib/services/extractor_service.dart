@@ -12,9 +12,18 @@ class ExtractorService {
   static const String _domExtractorScript = r'''
   (function() {
     try {
-      // 1. Estrazione del Titolo
+      // 1. Estrazione del Titolo (supporta sia Sito Web che Edicola Digitale)
       let title = '';
-      const titleSelectors = ['h1.title-art', 'h1.article-title', 'h1[itemprop="headline"]', 'h1'];
+      const titleSelectors = [
+        '.article-detail h1',
+        '.article-detail .title',
+        '.reader-title',
+        '.article-head',
+        'h1.title-art',
+        'h1.article-title',
+        'h1[itemprop="headline"]',
+        'h1'
+      ];
       for (const sel of titleSelectors) {
         const el = document.querySelector(sel);
         if (el && el.innerText.trim().length > 0) {
@@ -25,7 +34,14 @@ class ExtractorService {
 
       // 2. Estrazione del Sottotitolo / Sommario
       let subtitle = '';
-      const subtitleSelectors = ['.subtitle-art', '.article-subtitle', '.sommario', '.lead', 'h2'];
+      const subtitleSelectors = [
+        '.article-detail .subtitle',
+        '.subtitle-art',
+        '.article-subtitle',
+        '.sommario',
+        '.lead',
+        'h2'
+      ];
       for (const sel of subtitleSelectors) {
         const el = document.querySelector(sel);
         if (el && el.innerText.trim().length > 0 && el.innerText.trim() !== title) {
@@ -36,7 +52,14 @@ class ExtractorService {
 
       // 3. Estrazione dell'Autore
       let author = '';
-      const authorSelectors = ['.author-art', '.signature', '.autore', '[itemprop="author"]', '.byline'];
+      const authorSelectors = [
+        '.article-detail .author',
+        '.author-art',
+        '.signature',
+        '.autore',
+        '[itemprop="author"]',
+        '.byline'
+      ];
       for (const sel of authorSelectors) {
         const el = document.querySelector(sel);
         if (el && el.innerText.trim().length > 0) {
@@ -52,9 +75,19 @@ class ExtractorService {
         date = dateEl.innerText.trim() || dateEl.getAttribute('datetime') || '';
       }
 
-      // 5. Estrazione dei Paragrafi dell'articolo
+      // 5. Estrazione dei Paragrafi dell'articolo (Sito ed Edicola)
       const paragraphs = [];
       const containerSelectors = [
+        '.article-detail',
+        '.article-container',
+        '.article-text',
+        '.reader-text',
+        '.modal-body',
+        '.article_text',
+        '.page-article',
+        '.sfogliatore-article',
+        '#articleContent',
+        '.articleContent',
         '.article-body',
         '.content',
         '.story-body',
@@ -66,14 +99,17 @@ class ExtractorService {
       let container = null;
       for (const sel of containerSelectors) {
         const el = document.querySelector(sel);
-        if (el) {
+        if (el && el.innerText.trim().length > 100) {
           container = el;
           break;
         }
       }
 
       const searchRoot = container || document.body;
-      const pElements = searchRoot.querySelectorAll('p');
+      let pElements = searchRoot.querySelectorAll('p');
+      if (pElements.length === 0) {
+        pElements = searchRoot.querySelectorAll('.paragraph, .paragrafo, div[class*="text"], div[class*="paragraph"]');
+      }
 
       const blacklistedTerms = [
         'iscriviti alla newsletter',
